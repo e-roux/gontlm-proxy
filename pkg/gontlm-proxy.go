@@ -267,31 +267,28 @@ func Run() {
 	//	proxy.OnRequest(goproxy.ReqHostMatches(regexp.MustCompile(".*:80$|.*:8080$"))).HandleConnect(HttpConnect)
 
 	//
-	// Connect Handler
+	// Connect Handler (HTTPS CONNECT — blocks before tunneling)
 	//
 	var ConnectHandler goproxy.FuncHttpsHandler = func(host string, ctx *goproxy.ProxyCtx) (*goproxy.ConnectAction, string) {
-		// HTTPSConnect := &goproxy.ConnectAction{
-		// 	// ConnectMitm enables SSL Interception, required for request filtering over HTTPS.
-		// 	// Action:    goproxy.ConnectMitm,
-		// 	// ConnectAccept preserves upstream SSL Certificates, etc. TCP tunneling basically.
-		// 	Action:    goproxy.ConnectAccept,
-		// 	TLSConfig: goproxy.TLSConfigFromCA(&goproxy.GoproxyCa),
-		// }
-
-		// return HTTPSConnect, host
+		if isBlocked(host) {
+			log.Warnf("BLOCKED CONNECT to %s (policy)", host)
+			return goproxy.RejectConnect, host
+		}
 		return goproxy.OkConnect, host
 	}
 	proxy.OnRequest().HandleConnect(ConnectHandler)
 
 	//
-	// Request Handling
+	// Request Handling (HTTP — blocks plain-text requests)
 	//
-	// MITM Action is required for HTTPS Requests (e.g. goproxy.ConnectMitm instead of goproxy.ConnectAccept)
-	//
-	// proxy.OnRequest().DoFunc(func(req *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *http.Response) {
-	// 	log.Fatal(req.URL.String())
-	// 	return req, nil
-	// })
+	proxy.OnRequest().DoFunc(func(req *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *http.Response) {
+		host := req.URL.Hostname()
+		if isBlocked(host) {
+			log.Warnf("BLOCKED HTTP request to %s (policy)", host)
+			return req, blockResponse(req)
+		}
+		return req, nil
+	})
 
 	srv := &http.Server{
 		Handler: proxy,

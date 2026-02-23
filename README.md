@@ -28,6 +28,7 @@ By default, GoNTLM-Proxy listens locally on port 3128, however this can be set v
 | GONTLM_CA | `USERS_HOMEDIR`/.gontlm-ca.pem | The Certificate Authority which will be used for TLS communication |
 | GONTLM_PROXY_VERBOSE | false | This set the loglevel for the logging library |
 | GONTLM_PROXY_IDLE_TIMEOUT | unset | This set the [IdleTimeout](https://pkg.go.dev/net/http#Server) for the proxy. The format is documented in [ParseDuration](https://pkg.go.dev/time#ParseDuration) |
+| GONTLM_BLOCKLIST_FILE | `$HOME/.config/gontlm-proxy/blocklist` | Path to a plain-text file listing hostnames to block (one per line, `#` comments supported). See [Blocklist](#blocklist) below. |
 
 ## Connection Pooling and Timeout Defaults
 
@@ -71,6 +72,32 @@ $ go get github.com/bdwyertech/gontlm-proxy
 ## Development
 ```console
 $ go run .\cmd\gontlm-proxy\
+```
+
+## Blocklist
+
+gontlm-proxy can reject outbound connections to specific hosts at the proxy level, for both HTTPS CONNECT tunnels and plain HTTP requests. Blocked requests receive a `403 Forbidden` response.
+
+The blocklist is a plain-text file — one hostname per line. Lines beginning with `#` and blank lines are ignored. Matching is **exact** and **case-insensitive** on the hostname; the port is stripped before comparison. Wildcard/suffix matching is intentionally not supported.
+
+**Config file location (first match wins):**
+1. `GONTLM_BLOCKLIST_FILE` environment variable
+2. `$HOME/.config/gontlm-proxy/blocklist`
+
+If the file does not exist, the blocklist is empty and all traffic passes through.
+
+**Example file:**
+
+```
+# opencode — session sharing and telemetry
+opncd.ai
+app.opencode.ai
+
+# Remote model registry
+models.dev
+
+# npm — plugin installation and auto-update checks
+registry.npmjs.org
 ```
 
 ## License
