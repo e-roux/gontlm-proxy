@@ -23,15 +23,16 @@ func writeBlocklistFile(t *testing.T, content string) {
 	t.Setenv("GONTLM_BLOCKLIST_FILE", f.Name())
 }
 
-// loadFresh calls loadBlocklist() and stores the result in the package-level
-// blockedHosts so that isBlocked() uses it.
+// loadFresh calls loadBlocklist() and stores the results in the package-level
+// blockedHosts and blockedPatterns so that isBlocked() uses them.
 func loadFresh(t *testing.T) {
 	t.Helper()
-	hosts, err := loadBlocklist()
+	hosts, patterns, err := loadBlocklist()
 	if err != nil {
 		t.Fatalf("loadBlocklist: %v", err)
 	}
 	blockedHosts = hosts
+	blockedPatterns = patterns
 }
 
 // ----------------------------------------------------------------------------
@@ -137,12 +138,15 @@ func TestLoadBlocklist_EmptyFile(t *testing.T) {
 func TestLoadBlocklist_MissingFile_NotAnError(t *testing.T) {
 	t.Setenv("GONTLM_BLOCKLIST_FILE", filepath.Join(t.TempDir(), "nonexistent"))
 
-	hosts, err := loadBlocklist()
+	hosts, patterns, err := loadBlocklist()
 	if err != nil {
 		t.Errorf("missing file should not be an error, got: %v", err)
 	}
 	if len(hosts) != 0 {
 		t.Errorf("missing file should yield empty set, got %d entries", len(hosts))
+	}
+	if len(patterns) != 0 {
+		t.Errorf("missing file should yield empty patterns, got %d", len(patterns))
 	}
 }
 
@@ -151,12 +155,15 @@ func TestLoadBlocklist_NoEnvVar_NoHomeConfig_Empty(t *testing.T) {
 	t.Setenv("GONTLM_BLOCKLIST_FILE", "")
 	t.Setenv("HOME", t.TempDir())
 
-	hosts, err := loadBlocklist()
+	hosts, patterns, err := loadBlocklist()
 	if err != nil {
 		t.Errorf("no config should not error: %v", err)
 	}
 	if len(hosts) != 0 {
 		t.Errorf("no config should yield empty set, got %d", len(hosts))
+	}
+	if len(patterns) != 0 {
+		t.Errorf("no config should yield empty patterns, got %d", len(patterns))
 	}
 }
 
@@ -186,15 +193,100 @@ func TestIsBlocked_AllowedHosts(t *testing.T) {
 	}
 }
 
-func TestIsBlocked_NoSubdomainMatch(t *testing.T) {
-	// Suffix / wildcard matching is intentionally NOT supported.
+func TestIsBlocked_NoSubdomainMatch_ExactEntry(t *testing.T) {
+	// An exact entry does NOT match subdomains — use a pattern for that.
 	writeBlocklistFile(t, "opncd.ai\nmodels.dev\n")
 	loadFresh(t)
 
 	for _, h := range []string{"sub.opncd.ai", "api.models.dev", "notopncd.ai"} {
 		if isBlocked(h) {
-			t.Errorf("expected %q to be allowed (no wildcard matching)", h)
+			t.Errorf("expected %q to be allowed (exact entry, no subdomain match)", h)
 		}
+	}
+}
+
+// ----------------------------------------------------------------------------
+// Wildcard / glob pattern matching
+// ----------------------------------------------------------------------------
+
+func TestIsBlocked_WildcardPattern_BlocksSubdomains(t *testing.T) {
+	writeBlocklistFile(t, "*.opencode.ai\n")
+	loadFresh(t)
+
+	blocked := []string{"app.opencode.ai", "api.opencode.ai", "www.opencode.ai"}
+	for _, h := range blocked {
+		if !isBlocked(h) {
+			t.Errorf("expected %q to be blocked by *.opencode.ai", h)
+		}
+	}
+}
+
+func TestIsBlocked_WildcardPattern_DoesNotBlockApex(t *testing.T) {
+	// *.opencode.ai must NOT match the apex domain opencode.ai.
+	writeBlocklistFile(t, "*.opencode.ai\n")
+	loadFresh(t)
+
+	if isBlocked("opencode.ai") {
+		t.Error("*.opencode.ai must not block the apex domain opencode.ai")
+	}
+}
+
+func TestIsBlocked_WildcardPattern_WithPort(t *testing.T) {
+	writeBlocklistFile(t, "*.opencode.ai\n")
+	loadFresh(t)
+
+	if !isBlocked("app.opencode.ai:443") {
+		t.Error("expected app.opencode.ai:443 to be blocked by *.opencode.ai")
+	}
+}
+
+func TestIsBlocked_WildcardPattern_CaseInsensitive(t *testing.T) {
+	writeBlocklistFile(t, "*.OpenCode.AI\n")
+	loadFresh(t)
+
+	if !isBlocked("APP.opencode.ai") {
+		t.Error("expected APP.opencode.ai to be blocked (case-insensitive pattern)")
+	}
+}
+
+func TestIsBlocked_WildcardPattern_DoesNotMatchUnrelated(t *testing.T) {
+	writeBlocklistFile(t, "*.opencode.ai\n")
+	loadFresh(t)
+
+	unrelated := []string{"opencode.com", "notopencode.ai", "bosch.com"}
+	for _, h := range unrelated {
+		if isBlocked(h) {
+			t.Errorf("expected %q to be allowed (unrelated to *.opencode.ai)", h)
+		}
+	}
+}
+
+func TestIsBlocked_ExactAndWildcard_Together(t *testing.T) {
+	// opencode.ai (exact) + *.opencode.ai (wildcard) — both should be blocked.
+	writeBlocklistFile(t, "opencode.ai\n*.opencode.ai\n")
+	loadFresh(t)
+
+	for _, h := range []string{"opencode.ai", "app.opencode.ai", "api.opencode.ai"} {
+		if !isBlocked(h) {
+			t.Errorf("expected %q to be blocked", h)
+		}
+	}
+}
+
+func TestLoadBlocklist_InvalidPattern_Skipped(t *testing.T) {
+	// A pattern with an unmatched '[' is invalid per path.Match.
+	writeBlocklistFile(t, "valid.com\n*.[invalid\ngood.com\n")
+	loadFresh(t)
+
+	if !isBlocked("valid.com") {
+		t.Error("valid.com should be blocked")
+	}
+	if !isBlocked("good.com") {
+		t.Error("good.com should be blocked")
+	}
+	// The invalid pattern must not have been stored.
+	if len(blockedPatterns) != 0 {
+		t.Errorf("invalid pattern should have been skipped, got %d patterns", len(blockedPatterns))
 	}
 }
 
