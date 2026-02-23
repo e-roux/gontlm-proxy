@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.user.gontlm-proxy</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>{{INSTALL_DIR}}/gontlm-proxy</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>GONTLM_BIND</key>
+        <string>http://0.0.0.0:3128</string>
+        <key>GONTLM_PROXY</key>
+        <string></string>
+        <key>GONTLM_PROXY_VERBOSE</key>
+        <string>false</string>
+        <key>GONTLM_BLOCKLIST_FILE</key>
+        <string>{{HOME}}/.config/gontlm-proxy/blocklist</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>{{HOME}}/Library/Application Support/gontlm/gontlm.log</string>
+    <key>StandardErrorPath</key>
+    <string>{{HOME}}/Library/Application Support/gontlm/gontlm_error.log</string>
+    <key>WorkingDirectory</key>
+    <string>{{HOME}}/Library/Application Support/gontlm</string>
+</dict>
+</plist>
